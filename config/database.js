@@ -2,13 +2,13 @@ const { SecretsManagerClient, GetSecretValueCommand } = require("@aws-sdk/client
 const { fromIni, fromEnv } = require("@aws-sdk/credential-providers");
 const { STSClient, GetCallerIdentityCommand } = require("@aws-sdk/client-sts");
 
-async function isLocalConnection() {
-  // Lógica para determinar se a conexão é local
+async function isLocalConnection(host) {
+  const targetHost = host || process.env.DB_HOST;
   return (
-    process.env.DB_HOST === undefined ||
-    process.env.DB_HOST === "database" ||
-    process.env.DB_HOST === "127.0.0.1" ||
-    process.env.DB_HOST === "localhost"
+    targetHost === undefined ||
+    targetHost === "database" ||
+    targetHost === "127.0.0.1" ||
+    targetHost === "localhost"
   );
 }
 
@@ -26,11 +26,10 @@ async function getConfig(){
   let dbConfig = {
     username: process.env.DB_USER || "postgres",
     password: process.env.DB_PWD || "postgres",
-    database: "bia",
+    database: process.env.DB_NAME || "bia",
     host: process.env.DB_HOST || "127.0.0.1",
-    port: process.env.DB_PORT || 5433,
+    port: process.env.DB_PORT || 5432,
     dialect: "postgres",
-    dialectOptions: await isLocalConnection() ? {} : await getRemoteDialectOptions(),
   };
 
   if(process.env.DB_SECRET_NAME && process.env.DB_SECRET_NAME.trim() !== '' ){
@@ -38,12 +37,19 @@ async function getConfig(){
     const secrets = await getSecrets(secretsManagerClient);
 
     if(secrets){
-      dbConfig.username = secrets.username;
-      dbConfig.password = secrets.password;
-
+      dbConfig.username = secrets.username || dbConfig.username;
+      dbConfig.password = secrets.password || dbConfig.password;
+      dbConfig.host = secrets.host || dbConfig.host;
+      dbConfig.port = secrets.port || dbConfig.port;
+      dbConfig.database = secrets.dbname || secrets.database || dbConfig.database;
       await imprimirSecrets(secrets);
     }
   }
+
+  const localConnection = await isLocalConnection(dbConfig.host);
+  dbConfig.dialectOptions = localConnection ? {} : await getRemoteDialectOptions();
+  dbConfig.port = Number(dbConfig.port) || 5432;
+
   return dbConfig;
 }
 
